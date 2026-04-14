@@ -1,5 +1,5 @@
--- Simple Coordinate Saver (Executor Version) - Улучшенный Auto Home
--- By Kitoo + улучшения для стабильного телепорта после смерти (даже с Fly)
+-- Simple Coordinate Saver (Executor Version) - Fixed & Reliable Auto Home
+-- By Kitoo + улучшения для работы с Fly
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -24,9 +24,7 @@ local function loadCoords()
 		local ok, data = pcall(readfile, FILE)
 		if ok and data and #data > 0 then
 			local success, tbl = pcall(function() return HttpService:JSONDecode(data) end)
-			if success and type(tbl) == "table" then
-				return tbl
-			end
+			if success and type(tbl) == "table" then return tbl end
 		end
 	end
 	return {}
@@ -35,11 +33,7 @@ end
 local function saveCoords(tbl)
 	if not canWrite then return false end
 	local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
-	if ok then
-		pcall(writefile, FILE, json)
-		return true
-	end
-	return false
+	if ok then pcall(writefile, FILE, json) end
 end
 
 local function getPos()
@@ -52,7 +46,7 @@ end
 
 local function addCoord(name)
 	local pos = getPos()
-	if not pos then warn("Карактер не найден.") return end
+	if not pos then warn("Персонаж не найден") return end
 	local coords = loadCoords()
 	name = tostring(name or ("Pos_" .. math.random(1000,9999)))
 	coords[name] = {pos.X, pos.Y, pos.Z}
@@ -65,10 +59,8 @@ local function tpCoord(name)
 	local t = coords[name]
 	if not t then warn("Координата не найдена:", name) return end
 	local char = LocalPlayer.Character
-	if not char then return end
-	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if hrp then
-		hrp.CFrame = CFrame.new(t[1], t[2], t[3])
+	if char and char:FindFirstChild("HumanoidRootPart") then
+		char.HumanoidRootPart.CFrame = CFrame.new(t[1], t[2], t[3])
 		print("[✔] Телепорт к:", name)
 	end
 end
@@ -79,113 +71,81 @@ local function delCoord(name)
 		coords[name] = nil
 		saveCoords(coords)
 		print("[-] Удалено:", name)
-	else
-		warn("Имя не найдено:", name)
 	end
 end
 
 local function listCoords()
 	local coords = loadCoords()
-	local hasCoords = false
+	local has = false
 	for n,v in pairs(coords) do
 		if n ~= HOME_KEY and n ~= AUTO_KEY and type(v) == "table" then
-			print(string.format("%s -> (%.2f, %.2f, %.2f)", n, v[1], v[2], v[3]))
-			hasCoords = true
+			print(string.format("%s → (%.2f, %.2f, %.2f)", n, v[1], v[2], v[3]))
+			has = true
 		end
 	end
-	if not hasCoords then print("(пусто)") end
+	if not has then print("(пусто)") end
 end
 
--- ==================== HOME FUNCTIONS ====================
-local function getHomeName()
-	local coords = loadCoords()
-	return coords[HOME_KEY]
-end
-
+-- Home функции
+local function getHomeName() local c = loadCoords() return c[HOME_KEY] end
 local function setHome(name)
-	if not name or name == "" then return end
-	local coords = loadCoords()
-	if not coords[name] or type(coords[name]) ~= "table" then
-		warn("Координата не найдена для Home:", name)
-		return
-	end
-	coords[HOME_KEY] = name
-	saveCoords(coords)
-	print("[HOME] Установлен:", name)
+	if not name then return end
+	local c = loadCoords()
+	if c[name] then c[HOME_KEY] = name saveCoords(c) print("[HOME] Установлен:", name) end
 end
 
-local function isAutoHomeEnabled()
-	local coords = loadCoords()
-	return coords[AUTO_KEY] == true
-end
-
+local function isAutoHomeEnabled() local c = loadCoords() return c[AUTO_KEY] == true end
 local function setAutoHome(enabled)
-	local coords = loadCoords()
-	coords[AUTO_KEY] = enabled and true or nil
-	saveCoords(coords)
+	local c = loadCoords()
+	c[AUTO_KEY] = enabled and true or nil
+	saveCoords(c)
 	print("[HOME] Auto Home " .. (enabled and "ВКЛЮЧЁН" or "ВЫКЛЮЧЕН"))
 end
 
--- ==================== УЛУЧШЕННЫЙ AUTO HOME (гарантированный телепорт) ====================
+-- ==================== НАДЁЖНЫЙ AUTO HOME ====================
 LocalPlayer.CharacterAdded:Connect(function(char)
 	task.spawn(function()
 		if not isAutoHomeEnabled() then return end
-		
 		local homeName = getHomeName()
 		if not homeName then return end
-		
-		local coordsTbl = loadCoords()
-		local t = coordsTbl[homeName]
-		if not t then return end
+		local coords = loadCoords()
+		local pos = coords[homeName]
+		if not pos then return end
 
-		-- Ждём полной загрузки персонажа
 		local hrp = char:WaitForChild("HumanoidRootPart", 10)
 		local hum = char:WaitForChild("Humanoid", 8)
 		if not hrp or not hum then return end
 
-		task.wait(1.2)  -- базовая задержка
+		task.wait(1.5)
 
-		-- === Сброс флая и очистка ===
+		-- Сброс флая
 		hum.PlatformStand = false
 		hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
-
-		-- Удаляем старые Body movers от флая
 		for _, v in ipairs(hrp:GetDescendants()) do
 			if v:IsA("BodyVelocity") or v:IsA("BodyGyro") or v:IsA("BodyPosition") then
 				v:Destroy()
 			end
 		end
 
-		-- Несколько попыток телепорта для надёжности
-		local targetCFrame = CFrame.new(t[1], t[2] + 4, t[3])  -- +4 по высоте
+		local target = CFrame.new(pos[1], pos[2] + 4, pos[3])
 
-		for attempt = 1, 5 do
-			-- Лучший метод телепорта
-			pcall(function()
-				char:PivotTo(targetCFrame)
-			end)
-
-			task.wait(0.25)
-
-			-- Проверка, что телепорт сработал
-			if hrp and (hrp.Position - targetCFrame.Position).Magnitude < 10 then
-				print("[AUTO HOME] ✅ Успешный телепорт на home:", homeName, "(попытка", attempt, ")")
+		-- Несколько попыток телепорта
+		for i = 1, 6 do
+			pcall(function() char:PivotTo(target) end)
+			task.wait(0.2)
+			if (hrp.Position - target.Position).Magnitude < 15 then
+				print("[AUTO HOME] ✅ Успешно телепортировало на", homeName)
 				return
 			end
 		end
 
-		-- Если не получилось — последняя попытка через CFrame
-		pcall(function()
-			hrp.CFrame = targetCFrame
-		end)
-
-		print("[AUTO HOME] Телепорт на home завершён:", homeName)
+		-- Последняя попытка
+		pcall(function() hrp.CFrame = target end)
+		print("[AUTO HOME] Телепорт завершён:", homeName)
 	end)
 end)
 
--- ========= UI (оставил без изменений) ==========
--- ... (весь твой UI код от local gui = ... до конца refreshList() и подключений кнопок)
-
+-- ==================== GUI ====================
 local gui = Instance.new("ScreenGui")
 gui.Name = "CoordsSaverUI"
 gui.ResetOnSpawn = false
@@ -195,26 +155,169 @@ local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 300, 0, 270)
 frame.Position = UDim2.new(0, 20, 0, 60)
 frame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
-frame.BorderSizePixel = 0
 frame.Active = true
 frame.Draggable = true
 frame.Parent = gui
 
--- (вставь сюда весь остальной UI код из твоего скрипта: title, credit, closeBtn, minBtn, nameBox, saveBtn, refreshBtn, homeLabel, toggleBtn, listFrame и т.д.)
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+local stroke = Instance.new("UIStroke", frame)
+stroke.Thickness = 1
+stroke.Color = Color3.fromRGB(80, 80, 80)
 
--- Глобальные команды
-getgenv().Coords = {
-	add = addCoord,
-	tp = tpCoord,
-	remove = delCoord,
-	list = listCoords,
-	setHome = setHome,
-	toggleAutoHome = function()
-		local enabled = isAutoHomeEnabled()
-		setAutoHome(not enabled)
-		updateHomeUI()
+local title = Instance.new("TextLabel", frame)
+title.Text = "Coordinate Saver"
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1,1,1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.Position = UDim2.new(0, 10, 0, 0)
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+local credit = Instance.new("TextLabel", frame)
+credit.Text = "by @SukitooV1"
+credit.Size = UDim2.new(1, -20, 0, 14)
+credit.Position = UDim2.new(0, 45, 0, 22)
+credit.BackgroundTransparency = 1
+credit.TextColor3 = Color3.fromRGB(160, 160, 160)
+credit.Font = Enum.Font.Gotham
+credit.TextSize = 11
+credit.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Close и Minimize кнопки
+local closeBtn = Instance.new("TextButton", frame)
+closeBtn.Size = UDim2.new(0, 30, 0, 24)
+closeBtn.Position = UDim2.new(1, -35, 0, 3)
+closeBtn.Text = "X"
+closeBtn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 14
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 5)
+
+local minBtn = Instance.new("TextButton", frame)
+minBtn.Size = UDim2.new(0, 30, 0, 24)
+minBtn.Position = UDim2.new(1, -70, 0, 3)
+minBtn.Text = "-"
+minBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+minBtn.TextColor3 = Color3.new(1,1,1)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 16
+Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 5)
+
+closeBtn.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	if minimized then
+		frame.Size = UDim2.new(0, 300, 0, 38)
+		for _, v in pairs(frame:GetChildren()) do
+			if v ~= title and v ~= credit and v ~= closeBtn and v ~= minBtn then
+				if v:IsA("GuiObject") then v.Visible = false end
+			end
+		end
+	else
+		frame.Size = UDim2.new(0, 300, 0, 270)
+		for _, v in pairs(frame:GetChildren()) do
+			if v:IsA("GuiObject") then v.Visible = true end
+		end
 	end
-}
+end)
 
-print("✅ Coordinate Saver активен с улучшенным Auto Home!")
-print("Теперь телепорт после смерти должен работать гарантированно даже с включённым флаем.")
+-- Остальной UI (nameBox, кнопки, список и т.д.)
+local nameBox = Instance.new("TextBox", frame)
+nameBox.PlaceholderText = "NameCord"
+nameBox.Size = UDim2.new(1, -20, 0, 28)
+nameBox.Position = UDim2.new(0, 10, 0, 40)
+nameBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+nameBox.TextColor3 = Color3.new(1,1,1)
+nameBox.Font = Enum.Font.Gotham
+nameBox.TextSize = 14
+Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 5)
+
+local saveBtn = Instance.new("TextButton", frame)
+saveBtn.Text = "Save"
+saveBtn.Size = UDim2.new(0.5, -15, 0, 30)
+saveBtn.Position = UDim2.new(0, 10, 0, 80)
+saveBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
+saveBtn.TextColor3 = Color3.new(1,1,1)
+saveBtn.Font = Enum.Font.Gotham
+saveBtn.TextSize = 14
+Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
+
+local refreshBtn = Instance.new("TextButton", frame)
+refreshBtn.Text = "Refresh List"
+refreshBtn.Size = UDim2.new(0.5, -15, 0, 30)
+refreshBtn.Position = UDim2.new(0.5, 5, 0, 80)
+refreshBtn.BackgroundColor3 = Color3.fromRGB(60, 130, 255)
+refreshBtn.TextColor3 = Color3.new(1,1,1)
+refreshBtn.Font = Enum.Font.Gotham
+refreshBtn.TextSize = 14
+Instance.new("UICorner", refreshBtn).CornerRadius = UDim.new(0, 8)
+
+local homeLabel = Instance.new("TextLabel", frame)
+homeLabel.Size = UDim2.new(0.65, -15, 0, 28)
+homeLabel.Position = UDim2.new(0, 10, 0, 115)
+homeLabel.BackgroundColor3 = Color3.fromRGB(40,40,40)
+homeLabel.TextColor3 = Color3.new(1,1,1)
+homeLabel.Text = "🏠 Home: none"
+homeLabel.Font = Enum.Font.Gotham
+homeLabel.TextSize = 13
+homeLabel.TextXAlignment = Enum.TextXAlignment.Left
+Instance.new("UICorner", homeLabel).CornerRadius = UDim.new(0, 5)
+
+local toggleBtn = Instance.new("TextButton", frame)
+toggleBtn.Size = UDim2.new(0.3, -10, 0, 28)
+toggleBtn.Position = UDim2.new(0.7, 5, 0, 115)
+toggleBtn.Text = "Auto Home: OFF"
+toggleBtn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+toggleBtn.TextColor3 = Color3.new(1,1,1)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 13
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 8)
+
+local function updateHomeUI()
+	local homeName = getHomeName()
+	homeLabel.Text = "🏠 Home: " .. (homeName or "none")
+	local enabled = isAutoHomeEnabled()
+	toggleBtn.Text = "Auto Home: " .. (enabled and "ON" or "OFF")
+	toggleBtn.BackgroundColor3 = enabled and Color3.fromRGB(0, 170, 100) or Color3.fromRGB(120, 50, 50)
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+	setAutoHome(not isAutoHomeEnabled())
+	updateHomeUI()
+end)
+
+-- List
+local listFrame = Instance.new("ScrollingFrame", frame)
+listFrame.Size = UDim2.new(1, -20, 0, 100)
+listFrame.Position = UDim2.new(0, 10, 0, 155)
+listFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+listFrame.ScrollBarThickness = 6
+listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Instance.new("UIListLayout", listFrame).Padding = UDim.new(0, 5)
+
+local function refreshList()
+	for _, v in pairs(listFrame:GetChildren()) do
+		if v:IsA("Frame") then v:Destroy() end
+	end
+
+	local coords = loadCoords()
+	local keys = {}
+	for name in pairs(coords) do
+		if name ~= HOME_KEY and name ~= AUTO_KEY and type(coords[name]) == "table" then
+			table.insert(keys, name)
+		end
+	end
+	table.sort(keys, function(a,b) return string.lower(a) < string.lower(b) end)
+
+	for _, name in ipairs(keys) do
+		local item = Instance.new("Frame", listFrame)
+		item.Size = UDim2.new(1, 0, 0, 30)
+		item.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		Instance.new("UICorner", item).CornerRadius = UDim.new(0, 7)
+
+		local lbl = Instance.new("TextLabel", item)
+		lbl.Size = UDim2.new(0.35, 0
