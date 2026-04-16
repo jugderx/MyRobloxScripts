@@ -3,7 +3,7 @@
 
 local RunService = game:GetService("RunService")
 
-getgenv().TARGET_FPS = 10  -- Изменяй это значение. Чем ниже — тем сильнее лагает (5-15 нормально, ниже 5 может крашнуть Roblox)
+getgenv().TARGET_FPS = 4  -- Изменяй это значение. Чем ниже — тем сильнее лагает (5-15 нормально, ниже 5 может крашнуть Roblox)
 
 local frameStart = os.clock()
 
