@@ -1,0 +1,124 @@
+local vim = game:GetService("VirtualInputManager")
+local runService = game:GetService("RunService")
+local coreGui = game:GetService("CoreGui")
+local UIS = game:GetService("UserInputService")
+local players = game:GetService("Players")
+
+local player = players.LocalPlayer
+local camera = workspace.CurrentCamera
+local oreFolder = game:GetService("Workspace").Interiors.Mines.Mine2.OreSpawns.Area2
+
+-- Создание GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "XenoFocusFix"
+screenGui.Parent = coreGui
+
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0, 200, 0, 70)
+button.Position = UDim2.new(0.1, 0, 0.5, 0)
+button.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+button.Text = "FIXED AIM: ВЫКЛ\n[Z] - Переключить"
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 13
+button.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.Parent = button
+
+-- Состояния
+local isAimbotting = false
+local mouseOver = false
+local currentTarget = nil
+local tickCount = 0 -- Для микро-вибрации
+
+-- Поиск цели
+local function findNewTarget()
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local closestOre = nil
+    local shortestDistance = math.huge
+    for _, spawnPoint in pairs(oreFolder:GetChildren()) do
+        local ore = spawnPoint:FindFirstChildWhichIsA("BasePart") or spawnPoint:FindFirstChildOfClass("Model")
+        if ore then
+            local orePos = (ore:IsA("Model") and ore:GetPivot().Position) or ore.Position
+            local dist = (character.HumanoidRootPart.Position - orePos).Magnitude
+            if dist < shortestDistance then
+                shortestDistance = dist
+                closestOre = ore
+            end
+        end
+    end
+    return closestOre
+end
+
+-- Переключение
+local function toggle()
+    isAimbotting = not isAimbotting
+    currentTarget = nil
+    if isAimbotting then
+        button.Text = "FIXED AIM: ВКЛ\n[Z]"
+        button.BackgroundColor3 = Color3.fromRGB(0, 150, 100)
+    else
+        button.Text = "FIXED AIM: ВЫКЛ\n[Z]"
+        button.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end
+end
+
+button.MouseButton1Click:Connect(toggle)
+UIS.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.Z then toggle() end
+end)
+
+-- ГЛАВНЫЙ ЦИКЛ
+runService.RenderStepped:Connect(function()
+    if not isAimbotting then return end
+
+    if currentTarget and currentTarget.Parent and (#currentTarget.Parent:GetChildren() > 0) then
+        -- 1. НАВЕДЕНИЕ
+        local targetPos = (currentTarget:IsA("Model") and currentTarget:GetPivot().Position) or currentTarget.Position
+        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, targetPos)
+        
+        -- 2. ЗАЖИМ + МИКРО-ДВИЖЕНИЕ
+        if not mouseOver then
+            local view = camera.ViewportSize
+            local centerX = view.X / 2
+            local centerY = view.Y / 2
+            
+            -- Чередуем смещение на 1 пиксель каждый кадр
+            tickCount = tickCount + 1
+            local offset = (tickCount % 2 == 0) and 1 or -1
+            
+            -- Посылаем движение (это заставляет игру засчитать клик по объекту)
+            vim:SendMouseMoveEvent(centerX + offset, centerY + offset, game)
+            
+            -- Посылаем сам зажим
+            vim:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+        end
+    else
+        currentTarget = findNewTarget()
+    end
+end)
+
+-- Драг меню
+button.MouseEnter:Connect(function() mouseOver = true end)
+button.MouseLeave:Connect(function() mouseOver = false end)
+local dragging, dragInput, dragStart, startPos
+button.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true; dragStart = input.Position; startPos = button.Position
+    end
+end)
+button.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+UIS.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+button.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
